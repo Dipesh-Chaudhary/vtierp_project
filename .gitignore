@@ -1,0 +1,113 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a script go in a specific directory,
+#  such as PyInstaller/dist/, since we have chosen to write them out to
+#  the current directory, we will ignore them here.
+# *.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+notebooks/.ipynb_checkpoints/ # Specifically for notebooks subdir
+
+# Virtual Environment
+venv/
+ENV/
+env/
+# If you are using tools like Poetry or Pipenv:
+# poetry.lock
+# Pipfile.lock
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# Docker
+docker-compose.override.yml
+
+# Secrets and config
+.env
+*.env
+
+# Data files (if large or sensitive, otherwise specific data folders might be versioned)
+data/uploads/*
+data/vector_stores/*
+# Keep the top-level data/ folder but ignore its contents.
+# Create .gitkeep files in subdirectories if you want to keep the directory structure.
+# e.g. data/uploads/.gitkeep
+# e.g. data/vector_stores/.gitkeep
+
+# Extracted images by notebook exploration (if you run it in root)
+extracted_images/
+sample_paper.pdf
+chroma_db_text/
+chroma_db_image/
+vtierp_graph.png
+
+# OS-specific
+.DS_Store
+Thumbs.db
