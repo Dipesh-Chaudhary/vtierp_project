@@ -1,5 +1,7 @@
 # Python
-notebooks
+!notebooks/exploration.ipynb
+notebooks/*
+!notebooks/
 __pycache__/
 *.py[cod]
 *$py.class
