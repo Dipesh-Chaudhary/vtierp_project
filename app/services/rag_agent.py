@@ -1,4 +1,3 @@
-# vtierp_project_custom/app/services/rag_agent.py
 import os
 from typing import List, Dict, TypedDict, Optional, Any
 from collections import defaultdict
