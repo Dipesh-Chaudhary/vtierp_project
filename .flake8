@@ -1,0 +1,17 @@
+[flake8]
+ignore =
+    E203, # whitespace before ':' - often clashes with black
+    W503, # line break before binary operator - also clashes with black
+    E501  # line too long (we'll set a more generous limit)
+max-line-length = 120
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    venv,
+    data,
+    notebooks/exploration.ipynb # Exclude the notebook itself from direct linting if it's complex
+per-file-ignores =
+    # app/services/pdf_processor.py:F811,F841 # Example for specific file ignores if needed for complex logic
+    # app/services/rag_agent.py:F811,F841
