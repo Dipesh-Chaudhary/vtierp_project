@@ -1,17 +1,33 @@
-langchain>=0.1.16
-langchain-google-genai>=1.0.2
-langchain_community>=0.0.32
-sentence-transformers>=2.2.2
-chromadb>=0.4.24
-pymupdf>=1.23.22 # Fitz
-Pillow>=10.0.0
-pydantic>=2.5.0
-python-dotenv>=1.0.0
-tqdm>=4.66.1
-uuid # built-in
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-streamlit>=1.30.0
-requests>=2.31.0 # For streamlit to call FastAPI
-langgraph>=0.0.40 # Check for latest
-SQLAlchemy # For SqliteSaver if used with LangGraph persistence
+# vtierp_project/requirements.txt
+
+# Core Langchain & Google Gemini
+langchain>=0.1.16,<0.2.0
+langchain-google-genai>=1.0.2,<1.1.0
+langchain_community>=0.0.32,<0.1.0
+langgraph>=0.0.40,<0.1.0 # Check for latest compatible version
+
+# Vector Store & Embeddings
+chromadb>=0.4.24,<0.5.0
+sentence-transformers>=2.2.2,<3.0.0 # For local embeddings if chosen
+
+# PDF & Image Processing
+pymupdf>=1.23.22,<1.24.0 # Fitz
+Pillow>=10.0.0,<11.0.0
+unstructured>=0.12.0,<0.13.0 # For advanced cleaning and OCR
+# If full OCR capabilities of unstructured are needed & you face issues, you might need:
+# unstructured[all-docs]>=0.12.0,<0.13.0
+# And system dependencies like tesseract-ocr, poppler-utils
+
+# Web Framework & Server
+fastapi>=0.109.0,<0.111.0
+uvicorn[standard]>=0.27.0,<0.29.0
+
+# Streamlit UI
+streamlit>=1.30.0,<1.33.0
+requests>=2.31.0,<2.33.0 # For Streamlit to call FastAPI
+
+# Utilities
+python-dotenv>=1.0.0,<1.1.0
+tqdm>=4.66.1,<4.67.0
+# uuid, io, re, math, collections, base64 are built-in
+SQLAlchemy>=2.0.0,<2.1.0 # For LangGraph SqliteSaver if you use checkpointing later
