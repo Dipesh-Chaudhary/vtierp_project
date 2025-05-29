@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vtierp_api_custom
+    ports:
+      - "8000:8000" # Host:Container
+    volumes:
+      - ./data:/app/data  # Persist data (uploads, vector stores) on host
+      # For development, you might want to mount your app code for live reloading:
+      # If Uvicorn is run with --reload, changes in mounted app code will restart server.
+      - ./app:/app/app
+    env_file:
+      - .env # Load environment variables from .env file in the project root
+    # environment: # Alternatively, or to override .env values:
+      # - GOOGLE_API_KEY=${GOOGLE_API_KEY_FROM_HOST_IF_NEEDED}
+      # - LOG_LEVEL=DEBUG
+    restart: unless-stopped
+    # healthcheck: # Optional: Add a healthcheck for the API
+    #   test: ["CMD-SHELL", "curl --fail http://localhost:8000/ || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+
+# Note: Streamlit service is omitted as per user request for this generation.
+# It would be added here when ready.
+
+# Named volume for data (alternative to host mount if preferred,
+# but host mount is easier for local dev inspection)
+# volumes:
+#   vtierp_app_data:
+# If using named volume, change API service volume to:
+#      - vtierp_app_data:/app/data
