@@ -47,90 +47,90 @@ The system uses AI to understand both text and visual elements (via their descri
 with st.sidebar:
     st.header("📄 PDF Management")
 
-    uploaded_file = st.file_uploader("1. Upload your Research PDF", type="pdf", key="pdf_uploader")
+    uploaded_files = st.file_uploader("Upload your Research PDFs", type="pdf", accept_multiple_files=True)
+    if uploaded_files:
+        for uploaded_file_item in uploaded_files:
+            if st.button("Process PDF", key="process_button", type="primary"):
+                st.session_state.current_pdf_id = None
+                st.session_state.pdf_is_ready = False
+                st.session_state.chat_history = []
+                st.session_state.api_error = None
+                st.session_state.current_filename = uploaded_file.name
+                st.session_state.processing_status_message = f"Uploading '{uploaded_file.name}'..."
 
-    if uploaded_file is not None:
-        if st.button("Process PDF", key="process_button", type="primary"):
-            st.session_state.current_pdf_id = None
-            st.session_state.pdf_is_ready = False
-            st.session_state.chat_history = []
-            st.session_state.api_error = None
-            st.session_state.current_filename = uploaded_file.name
-            st.session_state.processing_status_message = f"Uploading '{uploaded_file.name}'..."
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+                progress_bar = st.progress(0, text=st.session_state.processing_status_message)
 
-            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-            progress_bar = st.progress(0, text=st.session_state.processing_status_message)
+                try:
+                    upload_url = f"{FASTAPI_BASE_URL}/upload-pdf/"
+                    response = requests.post(upload_url, files=files, timeout=30) # Increased timeout for upload
+                    progress_bar.progress(10, text="Upload complete. Initiating processing...")
 
-            try:
-                upload_url = f"{FASTAPI_BASE_URL}/upload-pdf/"
-                response = requests.post(upload_url, files=files, timeout=30) # Increased timeout for upload
-                progress_bar.progress(10, text="Upload complete. Initiating processing...")
+                    if response.status_code == 200:
+                        data = response.json()
+                        st.session_state.current_pdf_id = data["pdf_id"]
+                        status_check_url = f"{FASTAPI_BASE_URL}{data['status_check_url']}" # Use relative URL from API
+                        st.session_state.processing_status_message = f"PDF '{data['filename']}' received (ID: {st.session_state.current_pdf_id}). Processing..."
+                        st.info(st.session_state.processing_status_message)
 
-                if response.status_code == 200:
-                    data = response.json()
-                    st.session_state.current_pdf_id = data["pdf_id"]
-                    status_check_url = f"{FASTAPI_BASE_URL}{data['status_check_url']}" # Use relative URL from API
-                    st.session_state.processing_status_message = f"PDF '{data['filename']}' received (ID: {st.session_state.current_pdf_id}). Processing..."
-                    st.info(st.session_state.processing_status_message)
+                        # Polling for status
+                        polling_attempts = 0
+                        max_polling_attempts = 120  # Poll for up to 10 minutes (120 * 5s)
+                        poll_interval = 5 # seconds
 
-                    # Polling for status
-                    polling_attempts = 0
-                    max_polling_attempts = 120  # Poll for up to 10 minutes (120 * 5s)
-                    poll_interval = 5 # seconds
+                        while polling_attempts < max_polling_attempts:
+                            progress_value = int(20 + (polling_attempts / max_polling_attempts) * 70)
+                            progress_bar.progress(progress_value, text=f"Processing... Attempt {polling_attempts + 1}")
 
-                    while polling_attempts < max_polling_attempts:
-                        progress_value = int(20 + (polling_attempts / max_polling_attempts) * 70)
-                        progress_bar.progress(progress_value, text=f"Processing... Attempt {polling_attempts + 1}")
-
-                        status_response = requests.get(status_check_url, timeout=10)
-                        if status_response.status_code == 200:
-                            status_data = status_response.json()
-                            current_status = status_data.get("status", "UNKNOWN").upper()
-                            st.session_state.processing_status_message = status_data.get("message", "Checking status...")
-                            st.info(f"Status: {current_status} - {st.session_state.processing_status_message}")
+                            status_response = requests.get(status_check_url, timeout=10)
+                            if status_response.status_code == 200:
+                                status_data = status_response.json()
+                                current_status = status_data.get("status", "UNKNOWN").upper()
+                                st.session_state.processing_status_message = status_data.get("message", "Checking status...")
+                                st.info(f"Status: {current_status} - {st.session_state.processing_status_message}")
 
 
-                            if current_status == "COMPLETED":
-                                st.session_state.pdf_is_ready = True
-                                st.session_state.processing_status_message = f"✅ PDF '{st.session_state.current_filename}' (ID: {st.session_state.current_pdf_id}) processed successfully!"
-                                st.success(st.session_state.processing_status_message)
-                                progress_bar.progress(100, text="Processing Complete!")
-                                # Store title if available
-                                if status_data.get("title") and status_data.get("title") != "N/A":
-                                    st.session_state.current_filename = status_data.get("title") # Update filename to title
-                                break
-                            elif current_status == "FAILED":
-                                st.session_state.processing_status_message = f"❌ Processing FAILED for '{st.session_state.current_filename}'. Reason: {status_data.get('message', 'Unknown error')}"
-                                st.error(st.session_state.processing_status_message)
-                                progress_bar.progress(100, text="Processing Failed.")
-                                break
-                        else:
-                            st.warning(f"Could not get processing status (HTTP {status_response.status_code}). Retrying...")
+                                if current_status == "COMPLETED":
+                                    st.session_state.pdf_is_ready = True
+                                    st.session_state.processing_status_message = f"✅ PDF '{st.session_state.current_filename}' (ID: {st.session_state.current_pdf_id}) processed successfully!"
+                                    st.success(st.session_state.processing_status_message)
+                                    progress_bar.progress(100, text="Processing Complete!")
+                                    # Store title if available
+                                    if status_data.get("title") and status_data.get("title") != "N/A":
+                                        st.session_state.current_filename = status_data.get("title") # Update filename to title
+                                    break
+                                elif current_status == "FAILED":
+                                    st.session_state.processing_status_message = f"❌ Processing FAILED for '{st.session_state.current_filename}'. Reason: {status_data.get('message', 'Unknown error')}"
+                                    st.error(st.session_state.processing_status_message)
+                                    progress_bar.progress(100, text="Processing Failed.")
+                                    break
+                            else:
+                                st.warning(f"Could not get processing status (HTTP {status_response.status_code}). Retrying...")
 
-                        time.sleep(poll_interval)
-                        polling_attempts += 1
+                            time.sleep(poll_interval)
+                            polling_attempts += 1
 
-                    if not st.session_state.pdf_is_ready and polling_attempts >= max_polling_attempts:
-                        st.session_state.processing_status_message = "⚠️ PDF processing timed out. Please check the API or try again."
-                        st.error(st.session_state.processing_status_message)
-                        progress_bar.progress(100, text="Processing Timed Out.")
-                else:
-                    st.session_state.api_error = f"Upload failed: {response.status_code} - {safe_extract_error_detail(response.text)}"
+                        if not st.session_state.pdf_is_ready and polling_attempts >= max_polling_attempts:
+                            st.session_state.processing_status_message = "⚠️ PDF processing timed out. Please check the API or try again."
+                            st.error(st.session_state.processing_status_message)
+                            progress_bar.progress(100, text="Processing Timed Out.")
+                    else:
+                        st.session_state.api_error = f"Upload failed: {response.status_code} - {safe_extract_error_detail(response.text)}"
+                        st.error(st.session_state.api_error)
+                        progress_bar.empty()
+
+                except requests.exceptions.ConnectionError:
+                    st.session_state.api_error = f"❌ Connection Error: Could not connect to the API at {FASTAPI_BASE_URL}. Is the backend running?"
                     st.error(st.session_state.api_error)
-                    progress_bar.empty()
-
-            except requests.exceptions.ConnectionError:
-                st.session_state.api_error = f"❌ Connection Error: Could not connect to the API at {FASTAPI_BASE_URL}. Is the backend running?"
-                st.error(st.session_state.api_error)
-                if 'progress_bar' in locals(): progress_bar.empty()
-            except requests.exceptions.Timeout:
-                st.session_state.api_error = "❌ Timeout: The request to the API timed out."
-                st.error(st.session_state.api_error)
-                if 'progress_bar' in locals(): progress_bar.empty()
-            except Exception as e:
-                st.session_state.api_error = f"❌ An unexpected error occurred: {str(e)}"
-                st.error(st.session_state.api_error)
-                if 'progress_bar' in locals(): progress_bar.empty()
+                    if 'progress_bar' in locals(): progress_bar.empty()
+                except requests.exceptions.Timeout:
+                    st.session_state.api_error = "❌ Timeout: The request to the API timed out."
+                    st.error(st.session_state.api_error)
+                    if 'progress_bar' in locals(): progress_bar.empty()
+                except Exception as e:
+                    st.session_state.api_error = f"❌ An unexpected error occurred: {str(e)}"
+                    st.error(st.session_state.api_error)
+                    if 'progress_bar' in locals(): progress_bar.empty()
 
 
     st.markdown("---")
