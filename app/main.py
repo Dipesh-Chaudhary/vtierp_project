@@ -3,6 +3,7 @@ import uuid
 import shutil
 import logging
 from datetime import datetime
+from typing import List 
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Path as FastApiPath
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +22,7 @@ logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="VTIERP - Custom Notebook Adaptation",
+    title="VTIERP -(VisioTextual Insight Engine for Research Papers) ",
     description="API for processing research papers (PDFs) and answering questions using RAG, adapted from user's notebook.",
     version="1.1.0" # Based on notebook v11.5 logic
 )
@@ -123,39 +124,54 @@ async def startup_event():
     #     logger.error(f"Failed to pre-initialize LLMs/Embeddings: {e}")
 
 
-@app.post("/upload-pdf/", response_model=UploadResponse)
-async def upload_pdf_endpoint(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are accepted.")
+@app.post("/upload-multiple-pdfs/", response_model=List[UploadResponse]) # Response is a list
+async def upload_multiple_pdfs_endpoint(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...) # Expect a list of files
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files were uploaded.")
 
-    pdf_id = str(uuid.uuid4())
-    original_filename = file.filename
-    
-    upload_dir = get_pdf_upload_dir() # Ensures it exists
-    temp_file_path = os.path.join(upload_dir, f"{pdf_id}_{original_filename}") # Temporary unique name
+    responses = []
+    for file_upload_item in files:
+        if not file_upload_item.filename.lower().endswith(".pdf"):
+            # Skip non-PDFs or return an error for the batch
+            logger.warning(f"Skipping non-PDF file: {file_upload_item.filename}")
+            # Or add an error response to the list:
+            # responses.append(UploadResponse(pdf_id="N/A", filename=file_upload_item.filename, message="Invalid file type, only PDF accepted.", status_check_url="N/A"))
+            continue
 
-    try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        logger.info(f"PDF '{original_filename}' uploaded as '{temp_file_path}', assigned ID: {pdf_id}")
-    except Exception as e:
-        logger.error(f"Could not save uploaded file {original_filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not save uploaded file: {e}")
-    finally:
-        await file.close() # Ensure file is closed
+        pdf_id = str(uuid.uuid4())
+        original_filename = file_upload_item.filename
+        upload_dir = get_pdf_upload_dir()
+        temp_file_path = os.path.join(upload_dir, f"{pdf_id}_{original_filename}")
 
-    # Initialize status for this PDF
-    TASK_STATUS[pdf_id] = {"status": "PENDING", "filename": original_filename, "message": "Awaiting processing."}
+        try:
+            with open(temp_file_path, "wb") as buffer:
+                shutil.copyfileobj(file_upload_item.file, buffer)
+            logger.info(f"PDF '{original_filename}' part of batch uploaded as '{temp_file_path}', ID: {pdf_id}")
+        except Exception as e:
+            logger.error(f"Could not save uploaded file {original_filename} from batch: {e}")
+            # Add a failure response for this file
+            responses.append(UploadResponse(pdf_id="N/A", filename=original_filename, message=f"Failed to save: {str(e)}", status_check_url="N/A"))
+            continue # to next file in batch
+        finally:
+            await file_upload_item.close() # Close each file
+
+        TASK_STATUS[pdf_id] = {"status": "PENDING", "filename": original_filename, "message": "Awaiting processing."}
+        background_tasks.add_task(background_pdf_processing_task, pdf_id, temp_file_path, original_filename)
+        
+        status_url = app.url_path_for("get_pdf_status_endpoint", pdf_id=pdf_id)
+        responses.append(UploadResponse(
+            pdf_id=pdf_id,
+            filename=original_filename,
+            message="PDF upload accepted, processing started.",
+            status_check_url=str(status_url)
+        ))
     
-    background_tasks.add_task(background_pdf_processing_task, pdf_id, temp_file_path, original_filename)
-    
-    status_url = app.url_path_for("get_pdf_status_endpoint", pdf_id=pdf_id)
-    return UploadResponse(
-        pdf_id=pdf_id,
-        filename=original_filename,
-        message="PDF upload accepted and processing started in the background.",
-        status_check_url=str(status_url) # Convert URL to string
-    )
+    if not responses: # If all files were invalid type
+         raise HTTPException(status_code=400, detail="No valid PDF files found in the upload.")
+    return responses
 
 @app.get("/pdf-status/{pdf_id}", response_model=PDFStatusResponse, name="get_pdf_status_endpoint")
 async def get_pdf_status_endpoint(pdf_id: str = FastApiPath(..., title="The ID of the PDF to check status for")):
