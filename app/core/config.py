@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     # LLM Models
-    llm_rag_model_name: str = os.getenv("LLM_RAG_MODEL", "gemini-1.5-flash-latest")
-    llm_aux_model_name: str = os.getenv("LLM_AUX_MODEL", "gemini-1.5-flash-latest")
+    llm_rag_model_name: str = os.getenv("LLM_RAG_MODEL", "gemini-2.5-flash-preview-05-20")
+    llm_aux_model_name: str = os.getenv("LLM_AUX_MODEL", "gemini-2.5-flash-preview-05-20")
     embeddings_model_name: str = os.getenv("EMBEDDINGS_MODEL", "models/text-embedding-004")
 
     # Processing Parameters from your notebook
@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     # Paths (these will be relative to the app's root inside Docker)
     base_data_path: str = "/app/data" # Docker internal path
+    # base_data_path: str = "data"      # Relative path for local development using fastAPI
     uploads_dir_name: str = "uploads"
     vector_stores_dir_name: str = "vector_stores"
     # This corresponds to IMAGE_SAVE_PARENT_DIR in your notebook for organizing extracted elements
