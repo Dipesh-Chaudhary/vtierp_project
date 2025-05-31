@@ -1,223 +1,243 @@
+# vtierp_project_custom/app/services/rag_agent.py
 import os
-from typing import List, Dict, TypedDict, Optional, Any
+from typing import List, Dict, TypedDict, Optional, Any # Removed Set as it's not directly used in this file's definitions
 from collections import defaultdict
+import logging # Module-level import for logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.docstore.document import Document
+from langchain.docstore.document import Document # Assuming Document is from langchain.docstore.document
 from langgraph.graph import StateGraph, END
 
-from app.dependencies_config.llm_config import get_rag_llm, get_aux_llm
+from app.dependencies_config.llm_config import get_rag_llm # get_aux_llm is not directly used here
 from app.services.vector_store_manager import get_retrievers_for_pdf
 from app.services.utils import image_to_base64 # For preparing image payload for LLM
 from app.core.config import settings
 
-# --- LangGraph State Definition (from your notebook) ---
+# Consistent module-level logger
+logger = logging.getLogger(__name__) # Use this logger throughout the module
+
+
+# --- LangGraph State Definition ---
 class AdvancedRAGState(TypedDict):
-    pdf_id: str # Added for context
+    pdf_id: str
     original_question: str
-    transformed_question: str # Could be enhanced with query transformation logic
+    transformed_question: str
     retrieved_text_docs: List[Document]
     retrieved_image_desc_docs: List[Document]
-    final_text_context: List[Document] # After reranking/selection
-    final_image_context: List[Document] # After reranking/selection
+    final_text_context: List[Document]
+    final_image_context: List[Document]
     images_for_llm_payload: List[Dict[str, Any]] # Base64 images for VLM
     answer: str
-    # This was global in notebook. For API, it's specific to the PDF's metadata.
-    pdf_specific_summary: Optional[str]
+    pdf_specific_summary: Optional[str] # Title & Abstract for the current PDF
 
 
-# --- Helper: Format documents for LLM (from your notebook) ---
-def format_docs_for_llm(docs: List[Document], doc_type: str) -> str:
+# --- Helper: Format documents for LLM Context ---
+def format_docs_for_llm(docs: List[Document], doc_type_label: str) -> str:
     if not docs:
-        return f"No relevant {doc_type} context found for this query."
+        return f"No relevant {doc_type_label} context found for this query."
 
-    if doc_type == "image": # Image descriptions
-        grouped = defaultdict(list)
+    # Initialize the list to hold formatted parts at the beginning
+    formatted_document_parts: List[str] = []
+
+    if doc_type_label == "image descriptions":
+        grouped_by_caption_id = defaultdict(list)
         for doc in docs:
-            # Use caption_id for grouping, fallback to image path if no caption_id
-            cid = doc.metadata.get("caption_id", f"ungrouped_img_{os.path.basename(doc.metadata.get('image_path_on_server','no_path'))}")
-            grouped[cid].append(doc)
+            caption_id = doc.metadata.get("caption_id", f"ungrouped_img_desc_{os.path.basename(doc.metadata.get('image_path_on_server','no_path'))}")
+            grouped_by_caption_id[caption_id].append(doc)
+        
+        for cap_id, desc_docs in grouped_by_caption_id.items():
+            original_caption_text = desc_docs[0].metadata.get("original_caption", str(cap_id))
+            if "ungrouped_img_desc" in str(cap_id) and original_caption_text == str(cap_id):
+                original_caption_text = "Ungrouped Visual Element"
+            formatted_document_parts.append(f"Visual Element Group: '{original_caption_text[:100]}...' ({len(desc_docs)} VLM description(s) retrieved)")
+            for i, single_desc_doc in enumerate(desc_docs):
+                img_path_hint = os.path.basename(str(single_desc_doc.metadata.get('image_path_on_server', 'N/A')))
+                page_num_hint = single_desc_doc.metadata.get('page_number','N/A')
+                formatted_document_parts.append(f"  VLM Description Part {i+1} (Source Hint: {img_path_hint}, Page: {page_num_hint}):\n    {single_desc_doc.page_content}")
+    
+    else: # For textual documents (text_chunks, summaries, text_table_content etc.)
+        for i, doc in enumerate(docs):
+            metadata = doc.metadata
+            source_file = os.path.basename(str(metadata.get('source_doc_name', 'N/A')))
+            pg = metadata.get('page_number','N/A')
+            doc_kind_raw = metadata.get('parser_source', metadata.get('type', 'N/A'))
+            doc_kind_clean = str(doc_kind_raw).replace('text_', '').replace('_description', '').replace('_summary', '').replace('content', '').replace('pymupdf_meta', 'Metadata').replace('digital','Digital Text').replace('ocr','OCR Text')
+            if doc_kind_clean == "chunk": doc_kind_clean = "Text Chunk"
+            if doc_kind_clean == "corpus": doc_kind_clean = "Corpus Summary" # Ensure this matches type from pdf_processor
+            
+            importance_level = metadata.get('importance', '')
+            header = f"Context Document {i+1} (Type: {doc_kind_clean}, Source: {source_file}, Page: {pg}{', Importance: '+importance_level if importance_level else ''}, CaptionID: {metadata.get('caption_id', 'N/A')} ):"
+            
+            content_for_llm = doc.page_content
+            if metadata.get("type") == "text_table_content" and metadata.get("table_markdown"):
+                content_for_llm += f"\n\n--- Replicated Table Structure (Markdown) for {metadata.get('caption_id', 'this table')} ---\n{metadata['table_markdown']}"
+            
+            formatted_document_parts.append(f"{header}\n{content_for_llm}\n")
+            
+    return "\n\n".join(formatted_document_parts)
 
-        parts = []
-        for grp_id, grp_docs in grouped.items():
-            # original_caption might be long, or just be "Uncaptioned visual"
-            cap_text = grp_docs[0].metadata.get("original_caption", str(grp_id))
-            if "ungrouped_img" in str(grp_id) and cap_text == str(grp_id) : cap_text = "Ungrouped Visual"
-
-            parts.append(f"Visual Element Group: '{cap_text[:100]}...' ({len(grp_docs)} description(s) found)")
-            for i, d_g in enumerate(grp_docs):
-                path_hint = os.path.basename(str(d_g.metadata.get('image_path_on_server', 'N/A')))
-                page_num = d_g.metadata.get('page_number', 'N/A')
-                # VLM description is d_g.page_content
-                parts.append(f"  Description Part {i+1} (Source Hint: {path_hint}, Page: {page_num}): {d_g.page_content}")
-        return "\n\n".join(parts)
-
-    # For text documents
-    parts = []
-    for i, doc in enumerate(docs):
-        m = doc.metadata
-        src_doc_name = os.path.basename(str(m.get('source_doc_name', 'N/A')))
-        pg = m.get('page_number', 'N/A')
-        # Clean up type display
-        type_raw = m.get('parser_source', m.get('type', 'N/A'))
-        type_clean = str(type_raw).replace('text_', '').replace('_description', '').replace('_summary', '').replace('content', '')
-        if type_clean == "chunk": type_clean = "Text Chunk"
-
-        importance = m.get('importance', '')
-        header = f"Context Document {i+1} (Source: {src_doc_name}, Page: {pg}, Type: {type_clean}{', Importance: '+importance if importance else ''}):"
-        parts.append(f"{header}\n{doc.page_content}\n")
-    return "\n\n".join(parts)
-
-
-# --- LangGraph Nodes (adapted from your notebook) ---
+# --- LangGraph Nodes ---
 def query_transform_node(state: AdvancedRAGState) -> AdvancedRAGState:
-    # print(f"--- Node: query_transform_node (PDF: {state['pdf_id']}) ---")
-    # For now, simple pass-through. Could involve query expansion, sub-queries etc.
+    logger.info(f"--- RAG Node: Query Transform (PDF: {state.get('pdf_id')}) ---")
     state["transformed_question"] = state["original_question"]
     return state
 
 def retrieve_documents_node(state: AdvancedRAGState) -> AdvancedRAGState:
-    # print(f"--- Node: retrieve_documents_node (PDF: {state['pdf_id']}) ---")
+    logger.info(f"--- RAG Node: Retrieve Documents (PDF: {state.get('pdf_id')}) ---")
     query = state["transformed_question"]
     pdf_id = state["pdf_id"]
-
     text_retriever, image_desc_retriever = get_retrievers_for_pdf(pdf_id)
-
     state["retrieved_text_docs"] = text_retriever.invoke(query) if text_retriever else []
     state["retrieved_image_desc_docs"] = image_desc_retriever.invoke(query) if image_desc_retriever else []
-    # print(f"Retrieved {len(state['retrieved_text_docs'])} text, {len(state['retrieved_image_desc_docs'])} img_desc docs.")
+    logger.info(f"Retrieved {len(state['retrieved_text_docs'])} text docs, {len(state['retrieved_image_desc_docs'])} img_desc docs.")
     return state
 
 def rerank_and_select_node(state: AdvancedRAGState) -> AdvancedRAGState:
-    # print(f"--- Node: rerank_and_select_node (PDF: {state['pdf_id']}) ---")
-    # This implements the k-selection and critical doc prioritization from your notebook
-    txt_docs = state.get("retrieved_text_docs", [])
-    img_docs = state.get("retrieved_image_desc_docs", [])
-
-    k_text_retrieved = 10 # default, from your notebook's retriever setup
-    k_images_retrieved = 8 # default
-
-    # For final context to LLM (can be smaller than retrieved k)
-    k_text_final = 7    # From your notebook's rerank_and_select
-    k_images_final = 5  # From your notebook's rerank_and_select
-
-    # Prioritize critical documents (title, abstract, pdf_specific_summary)
+    logger.info(f"--- RAG Node: Rerank and Select (PDF: {state.get('pdf_id')}) ---")
+    retrieved_texts = state.get("retrieved_text_docs", [])
+    retrieved_image_descs = state.get("retrieved_image_desc_docs", [])
+    k_text_final = 7
+    k_images_final = 5
     prioritized_texts = []
     critical_content_seen = set()
 
-    # Add pdf_specific_summary if available (comes from initial state now)
+    # Add pdf_specific_summary (Title/Abstract for current PDF) to context if available
     if state.get("pdf_specific_summary"):
-        summary_doc = Document(
-            page_content=state["pdf_specific_summary"],
-            metadata={"source_pdf_id": state["pdf_id"], "type": "pdf_summary", "importance": "critical"}
-        )
-        prioritized_texts.append(summary_doc)
-        critical_content_seen.add(state["pdf_specific_summary"][:200])
+        summary_doc_content = state["pdf_specific_summary"]
+        # Check if this exact summary content is already in retrieved_texts from a title/abstract doc
+        # This avoids duplicating it if title/abstract extraction already created such docs.
+        # However, it's simpler to just ensure it's at the top if provided.
+        # For robust deduplication, you'd compare content prefixes.
+        # For now, let's ensure it's prioritized if passed in `pdf_specific_summary`.
+        if summary_doc_content[:200] not in critical_content_seen:
+            summary_doc = Document(
+                page_content=summary_doc_content,
+                metadata={"source_pdf_id": state["pdf_id"], "source_doc_name": "Summary", "type": "pdf_summary_explicit", "importance": "critical"}
+            )
+            prioritized_texts.append(summary_doc)
+            critical_content_seen.add(summary_doc_content[:200])
 
-
-    for doc in txt_docs:
+    for doc in retrieved_texts:
         is_critical = doc.metadata.get("importance") == "critical"
-        content_prefix = doc.page_content[:200] # Simple dedupe based on prefix
+        content_prefix = doc.page_content[:200]
         if is_critical and content_prefix not in critical_content_seen:
             prioritized_texts.append(doc)
             critical_content_seen.add(content_prefix)
-
-    # Add remaining non-critical docs, avoiding duplicates
-    for doc in txt_docs:
+    for doc in retrieved_texts:
         if doc.metadata.get("importance") != "critical":
             content_prefix = doc.page_content[:200]
-            if content_prefix not in critical_content_seen and not any(p_doc.page_content[:200] == content_prefix for p_doc in prioritized_texts):
+            if not any(p_doc.page_content[:200] == content_prefix for p_doc in prioritized_texts):
                 prioritized_texts.append(doc)
-                # No need to add to critical_content_seen here, just ensuring it's not already in prioritized_texts
 
     state["final_text_context"] = prioritized_texts[:k_text_final]
-    state["final_image_context"] = img_docs[:k_images_final] # Simpler selection for images for now
+    state["final_image_context"] = retrieved_image_descs[:k_images_final]
 
-    # Prepare image payload for LLM (from your notebook)
     llm_image_payload = []
-    for img_doc in state["final_image_context"][:settings.max_images_to_llm_final]: # Global limit from settings
-        path = img_doc.metadata.get("image_path_on_server")
-        if path and os.path.exists(path):
-            b64, mime = image_to_base64(path)
-            if b64 and mime:
+    for img_desc_doc in state["final_image_context"][:settings.max_images_to_llm_final]:
+        image_path = img_desc_doc.metadata.get("image_path_on_server")
+        if image_path and os.path.exists(image_path):
+            b64_data, mime_type_str = image_to_base64(image_path)
+            if b64_data and mime_type_str and mime_type_str.startswith("image/"):
                 llm_image_payload.append({
-                    "path": path,
-                    "caption_or_vlm_desc": img_doc.page_content, # This is the VLM description
-                    "data": b64,
-                    "mime_type": mime
+                    "path": image_path,
+                    "vlm_description": img_desc_doc.page_content, # This is the VLM description
+                    "data": b64_data,
+                    "mime_type": mime_type_str
                 })
+            else:
+                logger.warning(f"Skipping image for LLM payload due to invalid b64/mime: Path='{image_path}', Mime='{mime_type_str}', B64_Exists={bool(b64_data)}")
+        else:
+            logger.warning(f"Image path not found or invalid for LLM payload: '{image_path}'")
+            
     state["images_for_llm_payload"] = llm_image_payload
-    # print(f"Selected {len(state['final_text_context'])} text, {len(state['final_image_context'])} img_desc for final context. {len(llm_image_payload)} images for LLM.")
+    logger.info(f"Selected {len(state['final_text_context'])} text, {len(state['final_image_context'])} img_desc. Prepared {len(llm_image_payload)} images for LLM.")
     return state
 
-
 def generate_answer_node(state: AdvancedRAGState) -> AdvancedRAGState:
-    # print(f"--- Node: generate_answer_node (PDF: {state['pdf_id']}) ---")
+    logger.info(f"--- RAG Node: Generate Answer (PDF: {state.get('pdf_id')}) ---")
     rag_llm = get_rag_llm()
     if not rag_llm:
         state["answer"] = "RAG LLM not initialized. Cannot generate answer."
+        logger.error("RAG LLM not available in generate_answer_node.")
         return state
 
     question = state["original_question"]
-    text_context_str = format_docs_for_llm(state.get("final_text_context", []), "text")
-    image_desc_context_str = format_docs_for_llm(state.get("final_image_context", []), "image")
+    text_context_str = format_docs_for_llm(state.get("final_text_context", []), "textual") # Corrected label
+    image_desc_context_str = format_docs_for_llm(state.get("final_image_context", []), "image descriptions") # Corrected label
     actual_images_payload = state.get("images_for_llm_payload", [])
-    pdf_summary = state.get("pdf_specific_summary", "No specific PDF summary provided.")
+    
+    # Get the PDF-specific summary (Title/Abstract) from the state
+    pdf_summary_from_state = state.get("pdf_specific_summary", "No specific PDF summary (Title/Abstract) provided for this query.")
 
-
-    # System prompt from your notebook
     system_prompt_content = (
         "You are an expert AI research assistant. Your task is to provide comprehensive, accurate, "
         "and well-structured answers to user questions based *only* on the provided documents as context.\n\n"
         "**Context Prioritization:** Prioritize context explicitly labeled 'DOCUMENT TITLE:', 'DOCUMENT ABSTRACT:', or 'PDF SUMMARY:'.\n\n"
-        "**Figure/Table Description:**\n"
+        "**Figure/Table Description & Replication:**\n"
         "- When asked to 'describe' a specific figure/table (e.g., 'Figure 1', 'Table 2'):\n"
-        "    - **Prioritize 'image_description' documents or 'text_table_content' that have a matching 'caption_id'.** If multiple parts exist, consolidate their descriptions.\n"
-        "    - **If no direct description is found but a 'text_figure_description' is, describe the figure based on that text.**\n"
-        "    - **For visual descriptions from images, explain key components, structure, any text within the figure, and its purpose/information conveyed.**\n\n"
+        "    - Look for context related to its 'CaptionID'.\n"
+        "    - For figures (visuals), use their 'VLM Description' if available.\n"
+        "    - For textual tables, if a 'Replicated Table Structure (Markdown)' is provided for that CaptionID, use it. Otherwise, describe based on the 'text_table_content'.\n"
+        "- When asked to **'replicate' a table**: \n"
+        "    - **If a 'Replicated Table Structure (Markdown)' is present in the context for the requested table (check CaptionID), reproduce that Markdown table exactly.**\n"
+        "    - If no Markdown structure is available, state that you can describe the table's content based on the text but cannot replicate its exact visual structure.\n"
+        "- For visual descriptions from images, explain key components, structure, any text within the figure, and its purpose/information conveyed.\n\n"
         "**General Guidance:**\n"
         "- Maintain a neutral, informative tone.\n"
         "- If information is not found in the provided context, state that clearly rather than hallucinating.\n"
         "- Format your answer clearly with headings or bullet points where appropriate.\n"
-        "- Cite page numbers (P:X) or source document names (S:filename) if available in the context metadata. If a caption_id is available for a visual, mention it (e.g. Figure 1).\n"
+        "- Cite page numbers (P:X) or source document names (S:filename) if available in the context metadata. If a caption_id is available for a visual/table, mention it (e.g. Figure 1, Table 2).\n"
         "- You are answering questions about a single PDF document, identified by PDF ID: {pdf_id}. All context provided pertains to this document."
     )
-
+    filled_system_prompt = system_prompt_content.format(pdf_id=state.get('pdf_id', 'UNKNOWN_PDF_ID'))
 
     human_message_parts = []
-    human_message_parts.append({"type": "text", "text": f"--- PDF SUMMARY (Title/Abstract for PDF ID: {state['pdf_id']}) ---\n{pdf_summary}\n--- END PDF SUMMARY ---"})
-    human_message_parts.append({"type": "text", "text": f"\n\n--- TEXT & TEXTUAL TABLE CONTEXT ---\n{text_context_str}\n--- END TEXT CONTEXT ---"})
+    human_message_parts.append({"type": "text", "text": f"--- PDF SUMMARY (Title/Abstract for PDF ID: {state.get('pdf_id', 'N/A')}) ---\n{pdf_summary_from_state}\n--- END PDF SUMMARY ---"})
+    human_message_parts.append({"type": "text", "text": f"\n\n--- TEXTUAL & TEXTUAL TABLE CONTEXT ---\n{text_context_str}\n--- END TEXT CONTEXT ---"})
     human_message_parts.append({"type": "text", "text": f"\n\n--- VLM DESCRIPTIONS OF VISUAL ELEMENTS ---\n{image_desc_context_str}\n--- END VLM DESCRIPTIONS ---"})
 
     if actual_images_payload:
-        human_message_parts.append({"type": "text", "text": f"\n\n--- ({len(actual_images_payload)}) ACTUAL IMAGES FOR YOUR REFERENCE (DO NOT DESCRIBE THE IMAGES THEMSELVES UNLESS ASKED, USE THEIR VLM DESCRIPTIONS ABOVE) ---"})
+        human_message_parts.append({"type": "text", "text": f"\n\n--- ({len(actual_images_payload)}) ACTUAL IMAGES FOR YOUR REFERENCE ---"})
+        logger.info(f"Constructing message with {len(actual_images_payload)} actual images.")
         for i, img_data in enumerate(actual_images_payload):
-            human_message_parts.append({"type": "text", "text": f"Image {i+1} Reference ({os.path.basename(img_data['path'])}). VLM Description Summary: '{img_data['caption_or_vlm_desc'][:100]}...'"})
-            human_message_parts.append({"type": "image_url", "image_url": {"url": f"data:{img_data['mime_type']};base64,{img_data['data']}"}})
+            vlm_desc_summary = img_data.get('vlm_description', img_data.get('caption_or_vlm_desc', 'N/A'))[:100]
+            human_message_parts.append({"type": "text", "text": f"Image {i+1} Ref ({os.path.basename(img_data['path'])}). VLM Desc Summary: '{vlm_desc_summary}...'"})
+            
+            current_mime_type = img_data.get('mime_type')
+            current_b64_data = img_data.get('data')
+
+            logger.info(f"Image {i+1} for LLM: Path: {img_data['path']}")
+            logger.info(f"Image {i+1} for LLM: MIME Type: '{current_mime_type}'")
+            logger.info(f"Image {i+1} for LLM: Base64 Data Snippet (first 60 chars): '{current_b64_data[:60] if current_b64_data else 'None'}'...")
+            
+            if not (current_mime_type and current_b64_data and current_mime_type.startswith("image/")):
+                logger.error(f"INVALID IMAGE DATA FOR LLM - Image {i+1} ({img_data['path']}): MIME='{current_mime_type}', B64_Exists={bool(current_b64_data)}. THIS IMAGE WILL LIKELY CAUSE AN ERROR.")
+            
+            image_url_for_llm = f"data:{current_mime_type};base64,{current_b64_data}"
+            logger.info(f"Image {i+1} for LLM: Constructed URL (first 100 chars): '{image_url_for_llm[:100]}'...")
+
+            human_message_parts.append({"type": "image_url", "image_url": {"url": image_url_for_llm}})
         human_message_parts.append({"type": "text", "text": "--- END ACTUAL IMAGES ---"})
     else:
         human_message_parts.append({"type": "text", "text": "\n\nNo actual images provided directly to the model for this query."})
-
+    
     human_message_parts.append({"type": "text", "text": f"\n\n--- USER QUESTION ---\n{question}\n\n--- ANSWER BASED *ONLY* ON THE PROVIDED CONTEXT ---"})
-
-    # Fill pdf_id in system prompt
-    filled_system_prompt = system_prompt_content.format(pdf_id=state['pdf_id'])
-
-    messages = [
-        SystemMessage(content=filled_system_prompt),
-        HumanMessage(content=human_message_parts)
-    ]
-
-    final_answer = "Error generating answer."
+    
+    messages = [SystemMessage(content=filled_system_prompt), HumanMessage(content=human_message_parts)]
+    
+    final_answer = "Error generating answer (LLM not available or failed)."
     try:
+        # logger.debug(f"Messages being sent to LLM: {messages}") # Can be very verbose
         response = rag_llm.invoke(messages)
         final_answer = response.content
+    except ValueError as ve:
+        logger.error(f"ValueError during LLM invocation for PDF {state.get('pdf_id', 'N/A')}, Q: '{question[:50]}...': {ve}", exc_info=True)
+        final_answer = f"LLM Input Error: {ve}. One of the image data URIs was malformed. Check server logs for MIME Type and Base64 Data Snippet logs."
     except Exception as e:
         final_answer = f"LLM Error during answer generation: {e}"
-        print(f"LLM error for PDF {state['pdf_id']}, Q: '{question[:50]}...': {e}")
-
+        logger.error(f"LLM error for PDF {state.get('pdf_id', 'N/A')}, Q: '{question[:50]}...': {e}", exc_info=True)
+        
     state["answer"] = final_answer
-    # print(f"Generated answer for PDF {state['pdf_id']}: {final_answer[:100]}...")
     return state
 
 # --- Compile LangGraph Agent ---
@@ -239,56 +259,63 @@ def get_compiled_rag_agent():
         graph_builder.add_edge("generate_answer", END)
 
         _compiled_rag_agent_graph = graph_builder.compile()
-        print("Custom RAG Agent graph compiled.")
+        logger.info("Custom RAG Agent graph compiled successfully.") # Use module logger
     return _compiled_rag_agent_graph
 
 def run_rag_query(pdf_id: str, question: str, pdf_summary_for_llm: str) -> Dict:
-    """
-    Runs the RAG agent for a given PDF ID and question.
-    `pdf_summary_for_llm` should be the title/abstract of the specific PDF.
-    """
     agent_graph = get_compiled_rag_agent()
-
-    # Initialize state (as in your notebook's main block)
-    initial_state = {key: [] if isinstance(type_hint_ann, list) or str(type_hint_ann).startswith("List[") else
-                          {} if isinstance(type_hint_ann, dict) or str(type_hint_ann).startswith("Dict[") else
-                          None if getattr(type_hint_ann, '__origin__', None) is Optional or
-                                  (hasattr(type_hint_ann, '__args__') and type(None) in type_hint_ann.__args__) else
-                          "" for key, type_hint_ann in AdvancedRAGState.__annotations__.items()}
+    
+    # Initialize state dictionary robustly
+    initial_state = {}
+    try:
+        for key_name, type_hint_ann in AdvancedRAGState.__annotations__.items():
+            origin = getattr(type_hint_ann, '__origin__', None)
+            args = getattr(type_hint_ann, '__args__', ())
+            if origin is list or str(type_hint_ann).startswith("typing.List") or str(type_hint_ann).startswith("List["):
+                initial_state[key_name] = []
+            elif origin is dict or str(type_hint_ann).startswith("typing.Dict") or str(type_hint_ann).startswith("Dict["):
+                initial_state[key_name] = {}
+            elif origin is Optional or (hasattr(type_hint_ann, '__args__') and type(None) in args):
+                initial_state[key_name] = None
+            elif type_hint_ann is str:
+                initial_state[key_name] = ""
+            else: 
+                initial_state[key_name] = None 
+    except NameError:
+        logger.critical("AdvancedRAGState not defined during initial_state creation in run_rag_query.")
+        raise # Re-raise as this is a fundamental issue
 
     initial_state.update({
         "pdf_id": pdf_id,
         "original_question": question,
-        "pdf_specific_summary": pdf_summary_for_llm, # Use the specific PDF's summary
-         # Ensure all keys in AdvancedRAGState are present
-        "transformed_question": question, # Default, can be overwritten by transform_node
-        "retrieved_text_docs": [],
-        "retrieved_image_desc_docs": [],
-        "final_text_context": [],
-        "final_image_context": [],
-        "images_for_llm_payload": [],
-        "answer": ""
+        "pdf_specific_summary": pdf_summary_for_llm,
+        "transformed_question": question, # Default, can be overwritten
+        # Other fields will default to their empty/None values from above
     })
-
-
+    
+    final_state_result = None
     try:
-        # Note on LangGraph input: If using .invoke(input_dict), ensure input_dict matches the graph's input schema.
-        # If the entry point node takes the full state, then pass the full initial_state.
-        final_state_result = agent_graph.invoke(initial_state, {"recursion_limit": 15}) # LangGraph handles state internally
+        final_state_result = agent_graph.invoke(initial_state, {"recursion_limit": 15})
     except Exception as e:
-        print(f"LangGraph execution error for PDF {pdf_id}, Q: '{question[:50]}...': {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"LangGraph execution error for PDF {pdf_id}, Q: '{question[:50]}...': {e}", exc_info=True)
         return {
-            "answer": "Error during RAG agent execution. Check server logs.",
+            "answer": "Error during RAG agent execution. Check server logs for detailed LangGraph error.",
             "retrieved_text_context_sample": [],
             "retrieved_image_context_sample": []
         }
+        
+    # Ensure final_state_result is not None before accessing keys
+    answer = "No answer generated or agent execution failed before answer."
+    text_context = []
+    image_context = []
 
-    # Prepare output, similar to what Streamlit UI might need
-    # Return samples of context for brevity or full if needed for debugging
+    if final_state_result:
+        answer = final_state_result.get("answer", answer)
+        text_context = final_state_result.get("final_text_context", [])
+        image_context = final_state_result.get("final_image_context", [])
+
     return {
-        "answer": final_state_result.get("answer", "No answer generated."),
-        "final_text_context": final_state_result.get("final_text_context", []), # List of Document objects
-        "final_image_context": final_state_result.get("final_image_context", []) # List of Document objects
+        "answer": answer,
+        "final_text_context": text_context, # Return full context for API to sample if needed
+        "final_image_context": image_context
     }
