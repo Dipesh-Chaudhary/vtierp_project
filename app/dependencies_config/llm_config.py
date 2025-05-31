@@ -61,10 +61,10 @@ def get_embeddings_model() -> GoogleGenerativeAIEmbeddings:
     return _embeddings_instance
 
 # Pre-initialize on module load to catch errors early (optional)
-# try:
-#     get_rag_llm()
-#     get_aux_llm()
-#     get_embeddings_model()
-#     print(f"LLM/Embedding models ({settings.llm_rag_model_name}, {settings.llm_aux_model_name}, {settings.embeddings_model_name}) configured.")
-# except Exception as e:
-#     print(f"Failed to pre-initialize LLM/Embedding models: {e}")
+try:
+    get_rag_llm()
+    get_aux_llm()
+    get_embeddings_model()
+    print(f"LLM/Embedding models ({settings.llm_rag_model_name}, {settings.llm_aux_model_name}, {settings.embeddings_model_name}) configured.")
+except Exception as e:
+    print(f"Failed to pre-initialize LLM/Embedding models: {e}")
