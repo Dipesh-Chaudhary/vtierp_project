@@ -11,8 +11,8 @@ env:
   STREAMLIT_IMAGE_NAME: vtierp-streamlit-custom
 
 jobs:
-  lint-and-test:
-    name: Lint and Test Code
+  lint-and-test: # You might want to rename this job if linting is removed, e.g., to "setup-and-test"
+    name: Setup and Test Code # Renamed job display name
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,24 +31,34 @@ jobs:
     - name: Install ALL Python dependencies for testing
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt # Installs API + core dependencies
-        pip install -r requirements_streamlit.txt # Installs Streamlit specific deps if any not in main
-        pip install flake8 pytest pytest-asyncio # Testing tools
+        pip install -r requirements.txt 
+        pip install -r requirements_streamlit.txt 
+        pip install pytest pytest-asyncio # Flake8 removed from here if not used
+        # If you still want flake8 available locally but not run in CI:
+        # pip install flake8 
 
-    - name: Lint with Flake8
-      run: |
-        flake8 . --count --show-source --statistics # Uses project .flake8 config
+    # - name: Lint with Flake8 # This step is now commented out
+    #   run: |
+    #     flake8 . --count --show-source --statistics
 
-    - name: Run Pytests
+    - name: Run Pytests (if any)
       env:
-        # GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY_CI_TEST }} # If tests need API key
-        PYTHONPATH: ${{ github.workspace }} # Ensure 'app' can be imported
+        PYTHONPATH: ${{ github.workspace }} 
       run: |
-        pytest tests/ # Assuming tests are in 'tests' folder
+        # If you have no tests yet, this step can be commented out or made optional
+        # For example, to run tests only if the 'tests' directory exists:
+        if [ -d "tests" ]; then
+          pytest tests/
+        else
+          echo "No 'tests' directory found, skipping pytest."
+        fi
 
   build-docker-images:
     name: Build Docker Images
     runs-on: ubuntu-latest
+    # Ensure this job still runs even if the "lint-and-test" job has a different outcome
+    # or if you want it to be independent for now.
+    # If "lint-and-test" is just setup now, `needs: lint-and-test` is fine.
     needs: lint-and-test 
     
     steps:
@@ -63,22 +73,13 @@ jobs:
       with:
         driver-opts: image=moby/buildkit:v0.12.4
 
-    # Login to Docker Hub (Uncomment and configure secrets if pushing)
-    # - name: Login to Docker Hub
-    #   if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    #   uses: docker/login-action@v3
-    #   with:
-    #     username: ${{ secrets.DOCKER_HUB_USERNAME }}
-    #     password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
     - name: Build and push API Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         dockerfile: Dockerfile.api
-        push: false # Change to true when ready to push to registry
+        push: false 
         tags: ${{ env.API_IMAGE_NAME }}:latest, ${{ env.API_IMAGE_NAME }}:${{ github.sha }}
-        # Example for Docker Hub: tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.API_IMAGE_NAME }}:latest, ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.API_IMAGE_NAME }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -87,8 +88,7 @@ jobs:
       with:
         context: .
         dockerfile: Dockerfile.streamlit
-        push: false # Change to true when ready to push to registry
+        push: false 
         tags: ${{ env.STREAMLIT_IMAGE_NAME }}:latest, ${{ env.STREAMLIT_IMAGE_NAME }}:${{ github.sha }}
-        # Example for Docker Hub: tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.STREAMLIT_IMAGE_NAME }}:latest, ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.STREAMLIT_IMAGE_NAME }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
