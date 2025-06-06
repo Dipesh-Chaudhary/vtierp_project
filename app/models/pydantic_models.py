@@ -1,44 +1,44 @@
+# vtierp_project_custom/app/models/pydantic_models.py
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any
 
-class PDFProcessRequest(BaseModel):
-    # Used if we allow processing by providing a URL or existing path on server
-    # For upload, this is not directly used by client.
+class PDFProcessRequest(BaseModel): # No change
     file_path: Optional[str] = None
-    pdf_id: Optional[str] = None # If ID is pre-generated
+    pdf_id: Optional[str] = None
 
-class UploadResponse(BaseModel):
+class UploadResponse(BaseModel): # No change
     pdf_id: str
     filename: str
     message: str
     status_check_url: str
 
-class PDFStatusResponse(BaseModel):
+class PDFStatusResponse(BaseModel): # No change
     pdf_id: str
     filename: str
-    status: str # e.g., "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+    status: str 
     message: Optional[str] = None
     page_count: Optional[int] = None
-    title: Optional[str] = None # Extracted title
-    processed_at: Optional[str] = None # Timestamp
+    title: Optional[str] = None 
+    processed_at: Optional[str] = None 
+    processing_time_ms: Optional[float] = None
+
+# --- ADD ChatMessage and UPDATE QueryRequest ---
+class ChatMessage(BaseModel):
+    role: str # "user" or "assistant"
+    content: str
 
 class QueryRequest(BaseModel):
-    pdf_id: str
+    query_scope: str 
+    pdf_id: Optional[str] = None 
+    current_corpus_pdf_ids: Optional[List[str]] = None 
     question: str
-    # Advanced options if needed:
-    # max_text_results: Optional[int] = 7
-    # max_image_results: Optional[int] = 5
+    chat_history: Optional[List[ChatMessage]] = Field(default_factory=list) # Add chat history
 
-class RetrievedContextDoc(BaseModel):
+class QueryResponse(BaseModel): # No change from previous correct version
+    answer: str
+    query_processing_time_ms: Optional[float] = None
+    llm_generation_time_ms: Optional[float] = None
+
+class RetrievedContextDoc(BaseModel): # No change
     page_content: str
     metadata: Dict[str, Any]
-
-class QueryResponse(BaseModel):
-    pdf_id: str
-    question: str
-    answer: str
-    # Optionally return some context for display/debugging
-    # These are lists of Document objects, convert to dicts for Pydantic
-    retrieved_text_context_sample: Optional[List[RetrievedContextDoc]] = Field(default_factory=list)
-    retrieved_image_context_sample: Optional[List[RetrievedContextDoc]] = Field(default_factory=list)
-    # In image context metadata, 'image_path_relative_to_pdf_data' will be key for UI to build URL
