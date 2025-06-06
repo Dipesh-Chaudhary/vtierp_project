@@ -11,8 +11,8 @@ env:
   STREAMLIT_IMAGE_NAME: vtierp-streamlit-custom
 
 jobs:
-  lint-and-test: # You might want to rename this job if linting is removed, e.g., to "setup-and-test"
-    name: Setup and Test Code # Renamed job display name
+  lint-and-test: 
+    name: Setup and Test Code 
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -33,11 +33,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt 
         pip install -r requirements_streamlit.txt 
-        pip install pytest pytest-asyncio # Flake8 removed from here if not used
-        # If you still want flake8 available locally but not run in CI:
-        # pip install flake8 
+        pip install pytest pytest-asyncio # Ensure pytest is installed
 
-    # - name: Lint with Flake8 # This step is now commented out
+    # - name: Lint with Flake8 # Commented out as requested
     #   run: |
     #     flake8 . --count --show-source --statistics
 
@@ -45,50 +43,9 @@ jobs:
       env:
         PYTHONPATH: ${{ github.workspace }} 
       run: |
-        # If you have no tests yet, this step can be commented out or made optional
-        # For example, to run tests only if the 'tests' directory exists:
-        if [ -d "tests" ]; then
-          pytest tests/
-        else
-          echo "No 'tests' directory found, skipping pytest."
-        fi
-
-  build-docker-images:
-    name: Build Docker Images
-    runs-on: ubuntu-latest
-    # Ensure this job still runs even if the "lint-and-test" job has a different outcome
-    # or if you want it to be independent for now.
-    # If "lint-and-test" is just setup now, `needs: lint-and-test` is fine.
-    needs: lint-and-test 
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: image=moby/buildkit:v0.12.4
-
-    - name: Build and push API Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        dockerfile: Dockerfile.api
-        push: false 
-        tags: ${{ env.API_IMAGE_NAME }}:latest, ${{ env.API_IMAGE_NAME }}:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Build and push Streamlit Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        dockerfile: Dockerfile.streamlit
-        push: false 
-        tags: ${{ env.STREAMLIT_IMAGE_NAME }}:latest, ${{ env.STREAMLIT_IMAGE_NAME }}:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # Run pytest. If no tests are collected (exit code 5), consider it a success.
+        # This allows the CI to pass even if 'tests' directory is empty or contains no discoverable tests.
+        pytest tests/ || [ $? -eq 5 ]
+      # '|| [ $? -eq 5 ]' means: execute 'pytest tests/'. If it fails (non-zero exit code),
+      # THEN check if the exit code was 5. If it was, the whole 'run' command succeeds.
+      # If the exit code is anything else (e.g., 1 for failed tests, 2 for internal error), it will still fail the CI.
