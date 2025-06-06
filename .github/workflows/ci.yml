@@ -2,14 +2,12 @@ name: VTIERP Custom CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "develop" ] # Adjust to your main branches
+    branches: [ "main", "develop" ] 
   pull_request:
     branches: [ "main" ]
 
 env:
-  # Define image names for Docker Hub or other registries if you plan to push
-  # DOCKER_HUB_USERNAME: your_dockerhub_username # Set as GitHub Secret
-  API_IMAGE_NAME: vtierp-api-custom
+  API_IMAGE_NAME: vtierp-api-custom 
   STREAMLIT_IMAGE_NAME: vtierp-streamlit-custom
 
 jobs:
@@ -18,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10'] # Match your Docker Python version
+        python-version: ['3.10']
 
     steps:
     - name: Checkout repository
@@ -28,88 +26,69 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip' # Cache pip dependencies
+        cache: 'pip'
 
-    - name: Install dependencies
+    - name: Install ALL Python dependencies for testing
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install flake8 pytest # Add other testing/linting tools if you use them
+        pip install -r requirements.txt # Installs API + core dependencies
+        pip install -r requirements_streamlit.txt # Installs Streamlit specific deps if any not in main
+        pip install flake8 pytest pytest-asyncio # Testing tools
 
     - name: Lint with Flake8
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        # Using project's .flake8 config
-        flake8 . --count --show-source --statistics
+        flake8 . --count --show-source --statistics # Uses project .flake8 config
 
-    # Placeholder for Python unit/integration tests (if you add them in a 'tests' folder)
-    # - name: Run Pytests
-    #   env:
-    #     GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY_CI_TEST }} # Use a specific, restricted key for CI tests
-    #   run: |
-    #     pytest tests/
+    - name: Run Pytests
+      env:
+        # GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY_CI_TEST }} # If tests need API key
+        PYTHONPATH: ${{ github.workspace }} # Ensure 'app' can be imported
+      run: |
+        pytest tests/ # Assuming tests are in 'tests' folder
 
   build-docker-images:
     name: Build Docker Images
     runs-on: ubuntu-latest
-    needs: lint-and-test # Run after linting/testing passes
+    needs: lint-and-test 
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up QEMU (for multi-platform builds, optional)
+    - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
-        driver-opts: image=moby/buildkit:v0.12.4 # Pin buildkit version
+        driver-opts: image=moby/buildkit:v0.12.4
 
-    # Login to Docker Hub (optional, if you want to push images)
+    # Login to Docker Hub (Uncomment and configure secrets if pushing)
     # - name: Login to Docker Hub
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Example: Push only on main branch merge
+    #   if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     #   uses: docker/login-action@v3
     #   with:
     #     username: ${{ secrets.DOCKER_HUB_USERNAME }}
-    #     password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+    #     password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-    - name: Build API Docker image
+    - name: Build and push API Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         dockerfile: Dockerfile.api
-        push: false # Set to true to push to registry (requires login step)
+        push: false # Change to true when ready to push to registry
         tags: ${{ env.API_IMAGE_NAME }}:latest, ${{ env.API_IMAGE_NAME }}:${{ github.sha }}
-        # tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.API_IMAGE_NAME }}:latest # Example for Docker Hub
+        # Example for Docker Hub: tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.API_IMAGE_NAME }}:latest, ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.API_IMAGE_NAME }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        # build-args: | # If your Dockerfile needs build args
-        #   SOME_BUILD_ARG=value
 
-    - name: Build Streamlit Docker image
+    - name: Build and push Streamlit Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         dockerfile: Dockerfile.streamlit
-        push: false # Set to true to push to registry
+        push: false # Change to true when ready to push to registry
         tags: ${{ env.STREAMLIT_IMAGE_NAME }}:latest, ${{ env.STREAMLIT_IMAGE_NAME }}:${{ github.sha }}
-        # tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.STREAMLIT_IMAGE_NAME }}:latest # Example for Docker Hub
+        # Example for Docker Hub: tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.STREAMLIT_IMAGE_NAME }}:latest, ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.STREAMLIT_IMAGE_NAME }}:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-  # Optional: Deploy job (example placeholder)
-  # deploy:
-  #   name: Deploy to Staging/Production
-  #   runs-on: ubuntu-latest
-  #   needs: build-docker-images
-  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Condition for deployment
-  #   environment: production # Or staging, requires GitHub environment setup with secrets
-  #   steps:
-  #   - name: Checkout repository
-  #     uses: actions/checkout@v4
-  #   - name: Example Deployment step (e.g., to a cloud run, k8s, etc.)
-  #     run: |
-  #       echo "Deploying version ${{ github.sha }}..."
-  #       # Add your deployment script/commands here
-  #       # Example: gcloud run deploy ${{ env.API_IMAGE_NAME }} --image=gcr.io/$PROJECT_ID/${{ env.API_IMAGE_NAME }}:${{ github.sha }} --platform managed --region $REGION --allow-unauthenticated --set-env-vars=GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY_PROD }}
