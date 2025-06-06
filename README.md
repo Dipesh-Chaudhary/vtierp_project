@@ -1,126 +1,145 @@
-VisioTextual Insight Engine for Research Papers (VTIERP), adapted from a custom user-provided Jupyter Notebook (v11.5 processing logic). This project allows uploading PDF research papers, processes them to extract text, visual elements (with VLM-generated descriptions), and textual tables, and enables querying this extracted knowledge using a RAG pipeline built with Langchain and LangGraph.
+# 🔬 VisioTextual Insight Engine for Research Papers (VTIERP)
 
-## Core Features
+VTIERP is an advanced AI-powered system engineered to revolutionize how researchers and professionals interact with academic literature and complex documents. Unlike traditional RAG systems, VTIERP doesn't just process text; it intelligently **understands and synthesizes information from both textual and visual modalities**, including figures, tables, and complex layouts. This project pushes the boundaries of multimodal RAG by emphasizing human-like document understanding and contextual reasoning.
 
-*   **PDF Upload &amp; Advanced Processing:** Handles complex PDF structures, including digital and scanned documents.
-*   **Hybrid Element Extraction:** Identifies and extracts:
-    *   Regular text chunks.
-    *   Title and Abstract.
-    *   Visual elements (figures, diagrams) as rendered images.
-    *   Textual content of tables.
-    *   Captions for figures and tables.
-*   **VLM-Powered Descriptions:** Uses Google Gemini (multimodal model) to generate rich descriptions for extracted visual elements.
-*   **Vector Storage:** Employs ChromaDB to store embeddings of textual content and VLM-generated image/table descriptions.
-*   **LangGraph RAG Agent:** An advanced RAG agent, adapted from the user&grave;s notebook, orchestrates:
-    *   Query understanding (placeholder for transformation).
-    *   Retrieval from text and image description vector stores.
-    *   Context reranking and selection, prioritizing critical information.
-    *   Multimodal answer generation using Gemini, potentially referencing VLM descriptions and actual image data.
-*   **FastAPI Backend:** Robust API for PDF processing and querying.
-*   **Dockerized:** Fully containerized for consistent development and deployment (12-Factor App principles).
-*   **CI/CD Ready:** Basic GitHub Actions workflow placeholder.
+## 🚀 Why VTIERP Stands Out: An Innovative Edge
 
-## Tech Stack (Adapted)
+Many LLM applications for document Q&A struggle with the inherent complexity of PDFs: jumbled text from multi-column layouts, inaccessible data in tables, and uninterpreted visual content. VTIERP addresses these critical challenges, offering several distinct advantages:
 
-*   **LLM/VLM:** Google Gemini (e.g., &grave;gemini-1.5-flash-latest&grave;, &grave;models/text-embedding-004&grave; via API)
+1.  **True Multimodal Context Understanding (Beyond Text-Only RAG):**
+    *   Leveraging insights from, VTIERP goes beyond basic textual RAG. It actively extracts and integrates content from both text and visual elements (figures, tables).
+    *   **Intelligent Visual Element Extraction:** It identifies figures and tables, generates rich VLM (Vision-Language Model) descriptions for them, allowing the LLM to "see" and interpret visual data. This is particularly impactful for scientific papers where figures and tables convey crucial information.
+    *   **Robust Table Handling:** Recognizes tables and attempts to extract their raw textual content and even generate Markdown representations. Critically, if text or Markdown extraction is insufficient, it intelligently creates a visual image of the table region and generates a VLM description, ensuring no table information is lost. This addresses a major pain point in document AI.
+
+2.  **Advanced Layout Awareness & Contextual Grounding:**
+    *   Inspired by research in Document Understanding, VTIERP's parsing is heuristically aware of document layout. It attempts to:
+        *   Preserve line and block structures.
+        *   Handle text from HTML extraction (e.g., for basic subscript/superscript preservation) for digital PDFs.
+        *   Accurately define bounding boxes for extracted elements to ensure visual context for LLM.
+    *   **Precise Source Attribution:** Answers are meticulously grounded with explicit citations to the source document (e.g., 'AAG.pdf') and page number (e.g., 'Page 13'), mirroring human research practices and building trust in LLM outputs.
+
+3.  **Sophisticated LLM Agent Orchestration with LangGraph:**
+    *   Unlike simple RAG chains, VTIERP employs a LangGraph-powered agent. This agent orchestrates a multi-step reasoning process:
+        *   **Query Transformation:** Prepares the user's query for optimal retrieval.
+        *   **Multimodal Retrieval:** Simultaneously fetches relevant text chunks and image descriptions from dedicated vector stores.
+        *   **Intelligent Reranking & Selection:** Prioritizes critical information like document titles, abstracts, and overall corpus summaries. It ensures the most relevant context, including structured table data (Markdown, raw text) and VLM descriptions, is presented to the LLM.
+        *   **Context-Aware Generation:** The LLM is meticulously prompted to synthesize information from various modalities, handle follow-up questions using chat history, and provide precise, hallucination-free answers.
+
+4.  **Scalable & Deployable Architecture (12-Factor Compliant):**
+    *   Built with FastAPI for a robust API backend and Streamlit for an interactive UI.
+    *   Fully **Dockerized** using `docker-compose`, adhering to 12-Factor App principles for consistent development, testing, and deployment across environments.
+    *   **CI/CD Pipeline** with GitHub Actions ensures code quality (linting, testing) and automated image builds, facilitating continuous integration and reliable releases.
+
+## 🛠️ Tech Stack
+
+*   **LLM/VLM:** Google Gemini (e.g., `gemini-1.5-flash-preview-05-20`, `models/text-embedding-004` via API)
 *   **Orchestration:** Langchain, LangGraph
-*   **PDF Processing:** PyMuPDF (Fitz)
-*   **Text Cleaning/OCR (Optional):** Unstructured.io
-*   **Vector Store:** ChromaDB
-*   **Backend:** FastAPI
-*   **Containerization:** Docker, Docker Compose
+*   **PDF Processing:** PyMuPDF (Fitz) for extraction and rendering, augmented with heuristics for layout.
+*   **Text Cleaning/OCR:** Unstructured.io (for robust text cleaning and optional OCR fallback for scanned documents).
+*   **Vector Store:** ChromaDB (for efficient semantic search of textual and image descriptions).
+*   **Backend:** FastAPI (for high-performance API endpoints).
+*   **Frontend:** Streamlit (for intuitive user interaction).
+*   **Containerization:** Docker, Docker Compose.
+*   **CI/CD:** GitHub Actions.
 
-## Project Structure
+## 📂 Project Structure
 
-A high-level overview of the project structure:
+```
+vtierp_project_custom/
+├── .github/workflows/ci.yml    # CI/CD pipeline definition
+├── app/                        # FastAPI backend application
+│   ├── core/                   # Configuration, app-wide settings
+│   ├── dependencies_config/    # LLM, Embedding model setup (singleton instances)
+│   ├── models/                 # Pydantic models for API request/response validation
+│   ├── services/               # Core business logic (PDF processing, RAG agent, Vector Store management, utilities)
+│   └── main.py                 # FastAPI application entry point, API endpoints
+├── data/                       # Persistent data (mounted as Docker volumes)
+│   ├── uploads/                # Temporary storage for uploaded PDF files
+│   └── vector_stores/          # Persistent storage for ChromaDB vector stores and extracted images
+├── notebooks/                  # Jupyter notebook(s) for initial exploration and experimentation
+├── .env.example                # Example environment variables (sensitive data goes in .env)
+├── .flake8                     # Flake8 linter configuration
+├── .gitignore                  # Files/directories to ignore in Git
+├── Dockerfile.api              # Dockerfile for the FastAPI backend service
+├── Dockerfile.streamlit        # Dockerfile for the Streamlit frontend service
+├── requirements.txt            # Python dependencies for the API service (installed in Dockerfile.api)
+├── requirements_streamlit.txt  # Python dependencies for the Streamlit frontend service (installed in Dockerfile.streamlit)
+└── README.md                   # Project README (this file)
+```
 
-    vtierp_project_custom/
-    ├── .github/workflows/ci.yml    # CI/CD pipeline
-    ├── app/                        # FastAPI backend application
-    │   ├── core/                   # Configuration, core settings
-    │   ├── dependencies_config/    # LLM, Embedding model setup
-    │   ├── models/                 # Pydantic models for API
-    │   ├── services/               # Business logic (PDF processing, RAG, Vector Stores)
-    │   └── main.py                 # FastAPI app definition and endpoints
-    ├── data/                       # Persistent data (mounted in Docker)
-    │   ├── uploads/                # Temporary storage for uploaded PDFs
-    │   └── vector_stores/          # ChromaDB persistence and extracted images
-    ├── notebooks/                  # Jupyter notebook for exploration (if kept)
-    ├── .env.example                # Example environment variables
-    ├── .flake8                     # Flake8 configuration
-    ├── .gitignore
-    ├── Dockerfile.api              # Dockerfile for the API service
-    ├── docker-compose.yml          # Docker Compose setup
-    ├── requirements.txt            # Python dependencies
-    └── README.md                   # This file
-
-## Setup and Running
+## 🚀 Setup and Running
 
 **Prerequisites:**
-*   Docker and Docker Compose installed.
-*   A Google Gemini API Key.
+*   **Docker and Docker Compose:** Ensure you have these installed on your system.
+*   **Google Gemini API Key:** Obtain an API key from Google AI Studio.
 
 **1. Clone the Repository:**
-
-    git clone <your-repo-url>
-    cd vtierp_project_custom
+   ```bash
+   git clone https://github.com/Dipesh-Chaudhary/vtierp_project
+   cd vtierp_project
+   ```
 
 **2. Create Environment File:**
-   Copy &grave;.env.example&grave; to &grave;.env&grave; and add your &grave;GOOGLE_API_KEY&grave; and other model configurations if needed:
-
-    cp .env.example .env
-    # Now edit .env with your credentials and desired model names.
-    # Example content for .env:
-    # GOOGLE_API_KEY="YOUR_ACTUAL_GEMINI_API_KEY"
-    # LOG_LEVEL="INFO"
-    # LLM_RAG_MODEL="gemini-1.5-flash-latest"
-    # LLM_AUX_MODEL="gemini-1.5-flash-latest"
-    # EMBEDDINGS_MODEL="models/text-embedding-004"
+   Copy `.env.example` to `.env` and **add your actual `GOOGLE_API_KEY`**:
+   ```bash
+   cp .env.example .env
+   # Open .env file and paste your key:
+   # GOOGLE_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+   # You can also customize LLM_RAG_MODEL, LLM_AUX_MODEL, etc. here if needed.
+   ```
 
 **3. Build and Run with Docker Compose:**
-
-    docker-compose build
-    docker-compose up -d # -d runs in detached mode
-
-   To see logs:
-
-    docker-compose logs -f api
+   This command will build both the FastAPI API and Streamlit UI Docker images and start the services.
+   ```bash
+   docker-compose build --no-cache # --no-cache to ensure all layers are rebuilt, useful after requirement changes
+   docker-compose up -d           # -d runs containers in detached mode (in the background)
+   ```
+   To view the logs from both services:
+   ```bash
+   docker-compose logs -f
+   ```
+   To view logs from a specific service (e.g., API):
+   ```bash
+   docker-compose logs -f api
+   ```
 
 **4. Access the Application:**
-   *   **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-   *   (Streamlit UI to be added later, typically at http://localhost:8501)
+   *   **FastAPI API Docs (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+   *   **Streamlit UI:** [http://localhost:8501](http://localhost:8501)
 
 **5. Stopping the Application:**
+   To stop and remove the containers, networks, and volumes (excluding the `data` folder on your host):
+   ```bash
+   docker-compose down
+   ```
 
-    docker-compose down
+## Principle Adherence: 12-Factor App Methodology
 
-## Development Notes
+VTIERP is architected with the [12-Factor App methodology](https://12factor.net/) as a guiding principle, ensuring robustness, scalability, and maintainability:
 
-*   The PDF processing logic in &grave;app/services/pdf_processor.py&grave; is a direct adaptation of the user&grave;s &grave;exploration.ipynb&grave; (v11.5 hybrid approach).
-*   The LangGraph agent in &grave;app/services/rag_agent.py&grave; mirrors the advanced RAG structure from the notebook.
-*   Image paths for the API: Extracted images for a PDF with &grave;pdf_id&grave; are stored in &grave;data/vector_stores/<pdf_id>/extracted_images/&grave;. These can be served statically by FastAPI. The API response for queries includes &grave;image_path_relative_to_pdf_data&grave; in the metadata of image context documents, which the UI can use to construct full URLs (e.g., &grave;http://localhost:8000/static_data/<pdf_id>/extracted_images/your_image.png&grave;).
+1.  **Codebase:** Single codebase tracked in Git, deployable to various environments. (✅)
+2.  **Dependencies:** Explicitly declared and isolated via `requirements.txt` and `requirements_streamlit.txt` within Docker containers. (✅)
+3.  **Config:** All configuration (API keys, model names) is stored in environment variables, loaded from `.env` locally or injected in Docker. (✅)
+4.  **Backing Services:** LLMs (Gemini API), Vector Store (ChromaDB), and image storage are treated as loosely coupled attached resources. (✅)
+5.  **Build, Release, Run:** Separate stages are enforced by Dockerfiles and GitHub Actions workflow (builds Docker images, then runs them). (✅)
+6.  **Processes:** The FastAPI and Streamlit applications run as stateless processes. Any persistent data (vector stores, uploaded PDFs) is managed through bind mounts. (✅)
+7.  **Port Binding:** Services are self-contained and export via port binding (FastAPI on 8000, Streamlit on 8501). (✅)
+8.  **Concurrency:** Scalability is achieved through a process model; multiple instances can be run horizontally. (✅)
+9.  **Disposability:** Containers are designed for fast startup and graceful shutdown, making them resilient. (✅)
+10. **Dev/Prod Parity:** Docker ensures that development, staging, and production environments are as similar as possible. (✅)
+11. **Logs:** Logs are streamed to `stdout/stderr` from containers, aggregated and managed by `docker-compose logs`. (✅)
+12. **Admin Processes:** One-off management tasks can be executed against the production environment through container commands. (✅)
 
-## 12-Factor App Principles
+## 🔮 Future Enhancements & Research Directions
 
-This project aims for compliance with 12-Factor App principles:
-1.  **Codebase:** Single codebase in Git, multiple deploys. (Achieved)
-2.  **Dependencies:** Explicitly declared via &grave;requirements.txt&grave;. (Achieved)
-3.  **Config:** Stored in environment variables (&grave;.env&grave; loaded by Docker Compose). (Achieved)
-4.  **Backing Services:** ChromaDB (local file-based) and Gemini API are treated as attached resources. (Achieved)
-5.  **Build, Release, Run:** Strictly separated stages (Docker build, then run). (Achieved)
-6.  **Processes:** Stateless FastAPI processes (state managed in mounted volumes or client-side). (Achieved)
-7.  **Port Binding:** Services export via port binding (FastAPI on 8000). (Achieved)
-8.  **Concurrency:** Scalability via process model (multiple Docker containers can be run). (Achieved)
-9.  **Disposability:** Fast startup and graceful shutdown (Docker containers). (Achieved)
-10. **Dev/Prod Parity:** Docker ensures similar environments. (Achieved)
-11. **Logs:** Logs streamed to &grave;stdout/stderr&grave;, viewable via &grave;docker-compose logs&grave;. (Achieved)
-12. **Admin Processes:** One-off tasks can be run in containers if needed. (Conceptually Achieved)
+This project serves as a strong foundation, but the journey towards true human-like document understanding is ongoing. Future work could explore:
 
-## Future Enhancements (Beyond Notebook Adaptation)
+*   **Advanced Table Recognition:** Integrate specialized deep learning models for table detection and structure recognition (e.g.,) beyond current heuristics. This would enable perfect Markdown generation for complex tables and even visual reconstruction of tables.
+*   **Deep Layout Understanding:** Move beyond heuristics to integrate multimodal pre-trained models like LayoutLM, LayoutXLM, or UDOP which explicitly learn document layout, text, and visual relationships. This could lead to more robust sectioning, element association (even across columns/pages), and mathematical equation understanding.
+*   **Mathematical Equation Parsing:** Employ dedicated tools or VLM fine-tuning for extracting and potentially rendering LaTeX from images of equations.
+*   **Grounding and Citation Confidence:** Implement visual grounding to highlight the exact source regions in the PDF when answering questions, enhancing verifiability and trust. This could involve storing bounding box information with retrieved chunks.
+*   **Intelligent Document Agents:** Expand the LangGraph agent with more sophisticated planning, self-correction, and tool-use capabilities, potentially involving iterative refinement loops as in self-rewarding LLMs.
+*   **Long-Term Memory Management:** Implement advanced memory strategies for LLMs beyond just passing recent chat history, including summarization, retrieval over past conversations, and structured knowledge bases for user profiles or application-level facts.
+*   **Asynchronous Processing:** For very large PDFs or high concurrency, integrate a dedicated task queue (e.g., Celery with Redis/RabbitMQ) for background PDF processing to improve responsiveness and scalability.
+*   **Error Reporting & Monitoring:** Implement more robust error tracking, logging, and monitoring in a production environment.
 
-*   **Streamlit UI:** Interactive frontend for PDF upload and chat-based querying.
-*   **Robust Task Queuing:** Replace FastAPI&grave;s &grave;BackgroundTasks&grave; with Celery/Redis for more resilient and scalable PDF processing.
-*   **Database for Task Status &amp; Metadata:** Use a proper database (e.g., PostgreSQL, SQLite) instead of in-memory &grave;TASK_STATUS&grave; for persistence.
-*   **Enhanced Error Handling &amp; Logging.**
-*   **More Sophisticated Query Transformation in LangGraph.**
-*   **User Authentication and Per-User Data.**
