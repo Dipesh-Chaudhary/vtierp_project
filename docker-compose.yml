@@ -1,3 +1,4 @@
+# vtierp_project_custom/docker-compose.yml
 version: '3.8'
 
 services:
@@ -10,17 +11,10 @@ services:
       - "8000:8000" # Host:Container
     volumes:
       - ./data:/app/data  # Persist data (uploads, vector stores) on host
-      # For development, you might want to mount your app code for live reloading:
-      # If Uvicorn is run with --reload, changes in mounted app code will restart server.
-      - ./app:/app/app
+      - ./app:/app/app # For development, mount app code for live reloading
     env_file:
       - .env # Load environment variables from .env file in the project root
     restart: unless-stopped
-    # healthcheck: # Optional: Add a healthcheck for the API
-    #   test: ["CMD-SHELL", "curl --fail http://localhost:8000/ || exit 1"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
 
   streamlit:
     build:
@@ -30,21 +24,11 @@ services:
     ports:
       - "8501:8501" # Host:Container
     depends_on:
-      - api # Ensures API starts before Streamlit (though Streamlit should handle API being temporarily unavailable)
+      - api # Ensures API starts before Streamlit
     volumes:
-      # For development, mount your streamlit code for live reloading:
-      - ./streamlit_ui:/app/streamlit_ui
+      - ./streamlit_ui:/app/streamlit_ui # For development, mount streamlit code for live reloading
     environment:
-      # This tells Streamlit how to reach the API service within the Docker network.
-      # 'api' is the service name defined above.
-      - FASTAPI_URL=http://api:8000
-      # Pass Google API Key if Streamlit ever needed to make direct calls (unlikely for this design)
-      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - FASTAPI_URL=http://api:8000 # Service discovery within Docker network
     env_file:
       - .env # Can also pick up GOOGLE_API_KEY from here if needed by Streamlit directly
     restart: unless-stopped
-
-# Named volume for data (alternative to host mount if preferred,
-# but host mount is easier for local dev inspection)
-# volumes:
-#   vtierp_app_data:

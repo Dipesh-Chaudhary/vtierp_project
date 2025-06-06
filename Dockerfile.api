@@ -1,45 +1,39 @@
 FROM python:3.10-slim
 
-# Set environment variables for Python
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 WORKDIR /app
 
-# Install system dependencies that might be needed by PyMuPDF or Pillow
-# For python:3.10-slim, common ones are for image processing.
-# This might vary, but these are common. If PyMuPDF wheels are complete, may not need all.
+# Install system dependencies
+# libmagic-dev is for python-magic, which unstructured might use for filetype detection.
+# poppler-utils for pdf2image if unstructured uses it internally for PDF to image for OCR.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
-    # Add other dependencies if PyMuPDF or Unstructured needs them (e.g., tesseract for OCR)
+    libmagic-dev \
+    poppler-utils \
+    # If you intend to use Tesseract via unstructured:
     # tesseract-ocr \
     # tesseract-ocr-eng \
+    # If using paddleocr via unstructured:
+    # Add its system dependencies (can be extensive)
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements to leverage Docker cache
+# Copy the consolidated requirements file for the API
 COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=900 -r requirements.txt
 
-# Copy the entire application code
+# Copy the entire application code for the API
 COPY ./app /app/app
 
-# Create data directories that will be mounted as volumes
-# These commands ensure the directories exist with appropriate permissions
-# if the volume isn't mounted or is empty initially.
+# Create data directories that will be mounted as volumes (these paths are INSIDE the container)
 RUN mkdir -p /app/data/uploads && \
     mkdir -p /app/data/vector_stores && \
-    chown -R 1000:1000 /app/data  # Assuming a non-root user with UID/GID 1000
+    chown -R 1000:1000 /app/data # Good practice for non-root user if specified later
 
-# Application port
 EXPOSE 8000
-
-# Environment variables from .env will be passed by docker-compose
-# Example: ENV GOOGLE_API_KEY="" (but better to use docker-compose env_file or environment section)
-ENV PYTHONPATH=/app
-
-# Command to run the FastAPI application
-# Using --reload for development, remove for production
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-# For production: CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+ENV PYTHONPATH=/app # Allows imports from /app directory
+# CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"] # For development with reload
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] # For production

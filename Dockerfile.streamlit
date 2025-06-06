@@ -1,37 +1,31 @@
 FROM python:3.10-slim
 
-# Set environment variables for Python
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install any system dependencies Streamlit or its dependencies might need (usually minimal)
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     # Add any specific system libs if needed \
-#     && apt-get clean \
-#     && rm -rf /var/lib/apt/lists/*
+# Install any system dependencies (usually not many for streamlit alone)
+# RUN apt-get update && apt-get install -y --no-install-recommends ...
 
-# Copy only requirements to leverage Docker cache
-COPY requirements.txt requirements.txt
-# Add streamlit to requirements.txt if not already there, or install separately
-# Assuming 'streamlit' is in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-# If streamlit is not in requirements.txt, uncomment next line
-# RUN pip install --no-cache-dir streamlit requests
+# Copy ONLY streamlit-specific requirements
+COPY requirements_streamlit.txt requirements.txt
+
+RUN pip install --no-cache-dir --default-timeout=900 -r requirements.txt # Use new file name
+
 
 # Copy the Streamlit application code
 COPY ./streamlit_ui /app/streamlit_ui
 
-# Application port for Streamlit
 EXPOSE 8501
 
-# Environment variables (FASTAPI_URL will be set by docker-compose)
 ENV PYTHONPATH=/app
-# FASTAPI_URL is crucial and will be injected by docker-compose
+ENV FASTAPI_URL="http://api:8000"
 
-# Command to run the Streamlit application
-# The --server.enableCORS=false might be needed if you run into CORS issues despite FastAPI's CORS middleware,
-# but usually, FastAPI handling CORS is sufficient.
-# The --server.headless=true is good practice for running in containers.
 CMD ["streamlit", "run", "/app/streamlit_ui/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+
+
+
+
+
+	
