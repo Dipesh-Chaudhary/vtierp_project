@@ -1,0 +1,4 @@
+# vtierp_project_custom/requirements_streamlit.txt
+streamlit>=1.30.0
+requests>=2.31.0
+pydantic>=2.5.0
